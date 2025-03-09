@@ -1,3 +1,5 @@
+import 'package:fchecker/screens/analysisscreen.dart';
+import 'package:fchecker/screens/profilescreen.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
@@ -193,44 +195,97 @@ Future<Map<String, dynamic>> _analyzeWithGemini(String claim) async {
     );
   }
 
-  AppBar _buildAppBar() {
-    return AppBar(
-      title: const Text(
-        'Fact Check Assistant',
-        style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
-      ),
-      backgroundColor: Colors.white,
-      elevation: 1,
-      iconTheme: const IconThemeData(color: Colors.black),
-      actions: [
-        // Search button
-        IconButton(
-          icon: const Icon(Icons.search, color: Colors.black),
-          onPressed: () {
-            // Search functionality would go here
-          },
-        ),
-        // Profile button
-        Padding(
-          padding: const EdgeInsets.only(right: 8.0),
-          child: GestureDetector(
-            onTap: () {
-              // Profile action would go here
+AppBar _buildAppBar() {
+  return AppBar(
+    title: const Text(
+      'Fact Check Assistant',
+      style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
+    ),
+    backgroundColor: Colors.white,
+    elevation: 1,
+    iconTheme: const IconThemeData(color: Colors.black),
+    actions: [
+      // New Chat button
+      IconButton(
+        icon: const Icon(Icons.add_comment, color: Colors.black),
+        tooltip: 'New Chat',
+        onPressed: () {
+          // Show confirmation dialog
+          showDialog(
+            context: context,
+            builder: (BuildContext context) {
+              return AlertDialog(
+                title: const Text('Start New Chat'),
+                content: const Text('This will clear the current conversation. Continue?'),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                actions: [
+                  TextButton(
+                    child: const Text('Cancel'),
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                    },
+                  ),
+                  TextButton(
+                    child: const Text('Clear Chat'),
+                    onPressed: () {
+                      // Clear the messages list
+                      setState(() {
+                        _messages.clear();
+                      });
+                      // Clear the text controller as well
+                      _messageController.clear();
+                      Navigator.of(context).pop();
+                      
+                      // Show a confirmation snackbar
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Chat cleared!'),
+                          duration: Duration(seconds: 2),
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              );
             },
-            child: const CircleAvatar(
-              backgroundColor: Colors.black,
-              radius: 18,
-              child: Icon(
-                Icons.person,
-                color: Colors.white,
-                size: 20,
+          );
+        },
+      ),
+      // Search button
+      IconButton(
+        icon: const Icon(Icons.search, color: Colors.black),
+        onPressed: () {
+          // Search functionality would go here
+        },
+      ),
+      // Profile button
+      Padding(
+        padding: const EdgeInsets.only(right: 8.0),
+        child: GestureDetector(
+          onTap: () {
+            // Profile screen navigation would go here
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const ProfilePage(),
               ),
+            );
+          },
+          child: const CircleAvatar(
+            backgroundColor: Colors.black,
+            radius: 18,
+            child: Icon(
+              Icons.person,
+              color: Colors.white,
+              size: 20,
             ),
           ),
         ),
-      ],
-    );
-  }
+      ),
+    ],
+  );
+}
 
   Widget _buildEmptyState() {
     return Center(
@@ -369,6 +424,7 @@ Future<Map<String, dynamic>> _analyzeWithGemini(String claim) async {
   }
 }
 
+// Modify the ChatMessage class to make the fact check data clickable
 class ChatMessage extends StatelessWidget {
   final String text;
   final bool isUser;
@@ -419,7 +475,7 @@ class ChatMessage extends StatelessWidget {
                 if (factCheckData != null) 
                   Padding(
                     padding: const EdgeInsets.only(top: 8.0),
-                    child: _buildFactCheckResults(context),
+                    child: _buildFactCheckResultsCard(context),
                   ),
               ],
             ),
@@ -455,90 +511,82 @@ class ChatMessage extends StatelessWidget {
     );
   }
 
-  Widget _buildFactCheckResults(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(top: 6.0),
-      padding: const EdgeInsets.all(16.0),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: Colors.black12),
-        borderRadius: BorderRadius.circular(12.0),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Fact Check Results',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: Colors.black,
+  Widget _buildFactCheckResultsCard(BuildContext context) {
+    return GestureDetector(
+      onTap: () {
+        // Navigate to the detailed fact check screen when tapped
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => FactCheckDetailsScreen(
+              factCheckData: factCheckData!,
+              originalClaim: isUser ? text : "Analyzed claim",
             ),
           ),
-          const SizedBox(height: 12),
-          _buildFactMeter('Accuracy', factCheckData!['accuracy']),
-          _buildFactMeter('Credibility', factCheckData!['credibility']),
-          _buildFactMeter('Bias Level', factCheckData!['bias']),
-          const SizedBox(height: 16),
-          const Text(
-            'Summary',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
-              color: Colors.black,
+        );
+      },
+      child: Container(
+        margin: const EdgeInsets.only(top: 6.0),
+        padding: const EdgeInsets.all(16.0),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border.all(color: Colors.black12),
+          borderRadius: BorderRadius.circular(12.0),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.03),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
             ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            factCheckData!['summary'],
-            style: const TextStyle(
-              fontSize: 14,
-              color: Colors.black87,
-            ),
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            'Sources:',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 6),
-          ...List.generate(
-            (factCheckData!['sources'] as List).length,
-            (index) => Padding(
-              padding: const EdgeInsets.only(bottom: 4.0),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Icon(
-                    Icons.link,
-                    size: 16,
-                    color: Colors.blue,
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Fact Check Results',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black,
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      factCheckData!['sources'][index],
-                      style: const TextStyle(
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12.0),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(
+                        Icons.touch_app,
                         color: Colors.blue,
-                        fontSize: 14,
+                        size: 14,
                       ),
-                    ),
+                      SizedBox(width: 4.0),
+                      Text(
+                        'View Details',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blue,
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-          ),
-        ],
+            const SizedBox(height: 12),
+            _buildFactMeter('Accuracy', factCheckData!['accuracy']),
+            _buildFactMeter('Credibility', factCheckData!['credibility']),
+            _buildFactMeter('Bias Level', factCheckData!['bias']),
+          ],
+        ),
       ),
     );
   }
@@ -547,15 +595,28 @@ class ChatMessage extends StatelessWidget {
     Color meterColor;
     String assessment;
     
-    if (value > 70) {
-      meterColor = Colors.green;
-      assessment = 'High';
-    } else if (value > 40) {
-      meterColor = Colors.orange;
-      assessment = 'Medium';
+    if (label == 'Bias Level') {
+      if (value < 30) {
+        meterColor = Colors.green;
+        assessment = 'Low';
+      } else if (value < 70) {
+        meterColor = Colors.orange;
+        assessment = 'Medium';
+      } else {
+        meterColor = Colors.red;
+        assessment = 'High';
+      }
     } else {
-      meterColor = Colors.red;
-      assessment = 'Low';
+      if (value > 70) {
+        meterColor = Colors.green;
+        assessment = 'High';
+      } else if (value > 40) {
+        meterColor = Colors.orange;
+        assessment = 'Medium';
+      } else {
+        meterColor = Colors.red;
+        assessment = 'Low';
+      }
     }
 
     return Padding(
