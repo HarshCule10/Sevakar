@@ -1,6 +1,7 @@
 import 'package:fchecker/screens/ChatScreen.dart';
 import 'package:flutter/material.dart';
-
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 class AuthScreen extends StatefulWidget {
   const AuthScreen({Key? key}) : super(key: key);
 
@@ -12,7 +13,7 @@ class _AuthScreenState extends State<AuthScreen> {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   bool _isObscured = true;
-
+  bool registered = true;
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -154,7 +155,7 @@ class _AuthScreenState extends State<AuthScreen> {
       ),
     );
   }
-
+ final FirebaseAuth _auth = FirebaseAuth.instance;
   Widget _buildForgotPassword() {
     return Align(
       alignment: Alignment.centerRight,
@@ -172,16 +173,69 @@ class _AuthScreenState extends State<AuthScreen> {
       ),
     );
   }
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  void _signIn() async {
+  
+
+    try {
+      UserCredential userCredential = await _auth.signInWithEmailAndPassword(
+        email: _emailController.text.trim(),
+        password: _passwordController.text.trim(),
+      );
+
+      // Add user to Firestore if they are not already added
+      DocumentSnapshot userDoc =
+          await _firestore.collection('users').doc(userCredential.user!.uid).get();
+
+      if (!userDoc.exists) {
+        await _firestore.collection('users').doc(userCredential.user!.uid).set({
+          'email': _emailController.text.trim(),
+        });
+      }
+
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const ChatScreen()),
+      );
+    } catch (e) {
+      print(e);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString()),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      setState(() {
+        _emailController.clear();
+        _passwordController.clear();
+      });
+    }
+  }
+
+
 
   Widget _buildLoginButton() {
     return ElevatedButton(
       onPressed: () {
-        // Navigate to ChatScreen as requested
+      registered ? _signIn() : _auth
+          .createUserWithEmailAndPassword(
+            email: _emailController.text.trim(),
+            password: _passwordController.text.trim(),
+          )
+          .then((_) {
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
-            builder: (context) => const ChatScreen(),
+          MaterialPageRoute(builder: (context) => const ChatScreen()),
+        );
+      }).catchError((e) {
+        print(e);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString()),
+            backgroundColor: Colors.red,
           ),
         );
+      });
+      
       },
       style: ElevatedButton.styleFrom(
         backgroundColor: Colors.black,
@@ -191,9 +245,9 @@ class _AuthScreenState extends State<AuthScreen> {
           borderRadius: BorderRadius.circular(12),
         ),
       ),
-      child: const Text(
-        'Login',
-        style: TextStyle(
+      child: Text(
+        registered ? 'Sign In' : 'Sign Up',
+        style: const TextStyle(
           fontSize: 16,
           fontWeight: FontWeight.bold,
         ),
@@ -265,7 +319,9 @@ class _AuthScreenState extends State<AuthScreen> {
         ),
         TextButton(
           onPressed: () {
-            // No logic as requested
+            setState(() {
+              registered = !registered;
+            });
           },
           child: const Text(
             'Sign Up',

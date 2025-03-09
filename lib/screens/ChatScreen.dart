@@ -1,5 +1,7 @@
+import 'package:fchecker/helpers/firebasehelpers.dart';
 import 'package:fchecker/screens/analysisscreen.dart';
 import 'package:fchecker/screens/profilescreen.dart';
+import 'package:fchecker/widgets/chathistorypanel.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
@@ -122,57 +124,60 @@ Future<Map<String, dynamic>> _analyzeWithGemini(String claim) async {
     };
   }
 }
-  void _handleSubmitted(String text) async {
-    if (text.trim().isEmpty) return;
-    
-    _messageController.clear();
+void _handleSubmitted(String text) async {
+  if (text.trim().isEmpty) return;
+  
+  _messageController.clear();
 
+  setState(() {
+    _messages.add(
+      ChatMessage(
+        text: text,
+        isUser: true,
+      ),
+    );
+    _isAnalyzing = true;
+  });
+
+  // Scroll to the bottom after adding a new message
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    _scrollController.animateTo(
+      0.0,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOut,
+    );
+  });
+
+  try {
+    // Call the Gemini API for fact checking
+    final factCheckResult = await _analyzeWithGemini(text);
+    
     setState(() {
       _messages.add(
         ChatMessage(
-          text: text,
-          isUser: true,
+          text: 'Fact Check Analysis:',
+          isUser: false,
+          factCheckData: factCheckResult,
         ),
       );
-      _isAnalyzing = true;
+      _isAnalyzing = false;
     });
-
-    // Scroll to the bottom after adding a new message
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _scrollController.animateTo(
-        0.0,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOut,
+    
+    // Save fact check to Firebase
+    await FirebaseHelper.saveFactCheck(text, factCheckResult);
+    
+  } catch (e) {
+    setState(() {
+      _messages.add(
+        ChatMessage(
+          text: 'Sorry, I encountered an error while analyzing your claim. Please try again.',
+          isUser: false,
+        ),
       );
+      _isAnalyzing = false;
     });
-
-    try {
-      // Call the Gemini API for fact checking
-      final factCheckResult = await _analyzeWithGemini(text);
-      
-      setState(() {
-        _messages.add(
-          ChatMessage(
-            text: 'Fact Check Analysis:',
-            isUser: false,
-            factCheckData: factCheckResult,
-          ),
-        );
-        _isAnalyzing = false;
-      });
-    } catch (e) {
-      setState(() {
-        _messages.add(
-          ChatMessage(
-            text: 'Sorry, I encountered an error while analyzing your claim. Please try again.',
-            isUser: false,
-          ),
-        );
-        _isAnalyzing = false;
-      });
-    }
   }
-
+}
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -198,13 +203,21 @@ Future<Map<String, dynamic>> _analyzeWithGemini(String claim) async {
 AppBar _buildAppBar() {
   return AppBar(
     title: const Text(
-      'Fact Check Assistant',
+      'Sevakar',
       style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
     ),
     backgroundColor: Colors.white,
     elevation: 1,
     iconTheme: const IconThemeData(color: Colors.black),
     actions: [
+      // History button
+      IconButton(
+        icon: const Icon(Icons.history, color: Colors.black),
+        tooltip: 'Fact Check History',
+        onPressed: () {
+          _showFactCheckHistoryDialog();
+        },
+      ),
       // New Chat button
       IconButton(
         icon: const Icon(Icons.add_comment, color: Colors.black),
@@ -232,7 +245,6 @@ AppBar _buildAppBar() {
                       setState(() {
                         _messages.clear();
                       });
-                      // Clear the text controller as well
                       _messageController.clear();
                       Navigator.of(context).pop();
                       
@@ -250,13 +262,6 @@ AppBar _buildAppBar() {
               );
             },
           );
-        },
-      ),
-      // Search button
-      IconButton(
-        icon: const Icon(Icons.search, color: Colors.black),
-        onPressed: () {
-          // Search functionality would go here
         },
       ),
       // Profile button
@@ -286,6 +291,42 @@ AppBar _buildAppBar() {
     ],
   );
 }
+
+void _showFactCheckHistoryDialog() {
+  showDialog(
+    context: context,
+    builder: (BuildContext context) {
+      return Dialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16.0),
+        ),
+        child: FactCheckHistoryPanel(
+          onHistoryItemSelected: (claim, factCheckResult) {
+            setState(() {
+              _messages.add(
+                ChatMessage(
+                  text: claim,
+                  isUser: true,
+                ),
+              );
+              
+              _messages.add(
+                ChatMessage(
+                  text: 'Fact Check Analysis:',
+                  isUser: false,
+                  factCheckData: factCheckResult,
+                ),
+              );
+            });
+          },
+        ),
+      );
+    },
+  );
+}
+
+// Method to show chat history dialog
+
 
   Widget _buildEmptyState() {
     return Center(

@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "1058749733634",
+    "project_id": "sevakar-650a2",
+    "storage_bucket": "sevakar-650a2.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1058749733634:android:dca9ba350a42c4cb12c01b",
+        "android_client_info": {
+          "package_name": "com.example.fchecker"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1058749733634-j2q353f42pbgauvm6t6ke727pgmdhpub.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBUv85tSngld2TjKFyep-483be96lIRvSg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1058749733634-j2q353f42pbgauvm6t6ke727pgmdhpub.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

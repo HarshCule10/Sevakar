@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -738,8 +739,10 @@ class _ProfilePageState extends State<ProfilePage> {
                   ),
                 ],
               ),
+
               child: Row(
                 children: [
+                    TextButton(onPressed: FirebaseAuth.instance.signOut, child: Text('Sign Out')),
                   const Icon(Icons.lock, size: 16, color: Colors.grey),
                   const SizedBox(width: 8),
                   Expanded(
