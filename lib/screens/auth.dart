@@ -2,6 +2,7 @@ import 'package:fchecker/screens/ChatScreen.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+
 class AuthScreen extends StatefulWidget {
   const AuthScreen({Key? key}) : super(key: key);
 
@@ -12,8 +13,87 @@ class AuthScreen extends StatefulWidget {
 class _AuthScreenState extends State<AuthScreen> {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   bool _isObscured = true;
   bool registered = true;
+
+  // Function to create user in Firestore
+  Future<void> _createUserInFirestore(User user, String email) async {
+  try {
+    // Include a name field to avoid query errors
+    await _firestore.collection('users').doc(user.uid).set({
+      'email': email,
+      'name': '', // Empty string for the name field
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+    print('User document created in Firestore');
+  } catch (e) {
+    print('Error creating user in Firestore: $e');
+    // You may want to show an error message to the user here
+  }
+}
+
+  // Sign in function
+  void _signIn() async {
+    try {
+      UserCredential userCredential = await _auth.signInWithEmailAndPassword(
+        email: _emailController.text.trim(),
+        password: _passwordController.text.trim(),
+      );
+
+      // Ensure the user exists in Firestore when they sign in
+      await _createUserInFirestore(userCredential.user!, _emailController.text.trim());
+
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const ChatScreen()),
+      );
+    } catch (e) {
+      print(e);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString()),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      setState(() {
+        _emailController.clear();
+        _passwordController.clear();
+      });
+    }
+  }
+
+  // Sign up function
+  void _signUp() async {
+    try {
+      UserCredential userCredential = await _auth.createUserWithEmailAndPassword(
+        email: _emailController.text.trim(),
+        password: _passwordController.text.trim(),
+      );
+      
+      // Create the user document in Firestore
+      await _createUserInFirestore(userCredential.user!, _emailController.text.trim());
+
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const ChatScreen()),
+      );
+    } catch (e) {
+      print(e);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString()),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      setState(() {
+        _emailController.clear();
+        _passwordController.clear();
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -72,21 +152,23 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 
   Widget _buildTitle() {
-    return const Column(
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Welcome back',
-          style: TextStyle(
+          registered ? 'Welcome back' : 'Create account',
+          style: const TextStyle(
             fontSize: 28,
             fontWeight: FontWeight.bold,
             color: Colors.black,
           ),
         ),
-        SizedBox(height: 8),
+        const SizedBox(height: 8),
         Text(
-          'Sign in to continue to Fact Checker',
-          style: TextStyle(
+          registered 
+              ? 'Sign in to continue to Fact Checker'
+              : 'Sign up to start using Fact Checker',
+          style: const TextStyle(
             fontSize: 16,
             color: Colors.black54,
           ),
@@ -155,7 +237,7 @@ class _AuthScreenState extends State<AuthScreen> {
       ),
     );
   }
- final FirebaseAuth _auth = FirebaseAuth.instance;
+
   Widget _buildForgotPassword() {
     return Align(
       alignment: Alignment.centerRight,
@@ -173,69 +255,11 @@ class _AuthScreenState extends State<AuthScreen> {
       ),
     );
   }
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  void _signIn() async {
-  
-
-    try {
-      UserCredential userCredential = await _auth.signInWithEmailAndPassword(
-        email: _emailController.text.trim(),
-        password: _passwordController.text.trim(),
-      );
-
-      // Add user to Firestore if they are not already added
-      DocumentSnapshot userDoc =
-          await _firestore.collection('users').doc(userCredential.user!.uid).get();
-
-      if (!userDoc.exists) {
-        await _firestore.collection('users').doc(userCredential.user!.uid).set({
-          'email': _emailController.text.trim(),
-        });
-      }
-
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => const ChatScreen()),
-      );
-    } catch (e) {
-      print(e);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.toString()),
-          backgroundColor: Colors.red,
-        ),
-      );
-    } finally {
-      setState(() {
-        _emailController.clear();
-        _passwordController.clear();
-      });
-    }
-  }
-
-
 
   Widget _buildLoginButton() {
     return ElevatedButton(
       onPressed: () {
-      registered ? _signIn() : _auth
-          .createUserWithEmailAndPassword(
-            email: _emailController.text.trim(),
-            password: _passwordController.text.trim(),
-          )
-          .then((_) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (context) => const ChatScreen()),
-        );
-      }).catchError((e) {
-        print(e);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.toString()),
-            backgroundColor: Colors.red,
-          ),
-        );
-      });
-      
+        registered ? _signIn() : _signUp();
       },
       style: ElevatedButton.styleFrom(
         backgroundColor: Colors.black,
@@ -313,9 +337,9 @@ class _AuthScreenState extends State<AuthScreen> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        const Text(
-          'Don\'t have an account?',
-          style: TextStyle(color: Colors.black54),
+        Text(
+          registered ? 'Don\'t have an account?' : 'Already have an account?',
+          style: const TextStyle(color: Colors.black54),
         ),
         TextButton(
           onPressed: () {
@@ -323,9 +347,9 @@ class _AuthScreenState extends State<AuthScreen> {
               registered = !registered;
             });
           },
-          child: const Text(
-            'Sign Up',
-            style: TextStyle(
+          child: Text(
+            registered ? 'Sign Up' : 'Sign In',
+            style: const TextStyle(
               color: Colors.black,
               fontWeight: FontWeight.bold,
             ),

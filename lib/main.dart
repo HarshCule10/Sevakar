@@ -1,14 +1,13 @@
-import 'package:fchecker/screens/ChatScreen.dart';
+import 'package:fchecker/screens/HomeScreen.dart';
 import 'package:fchecker/screens/auth.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 void main() async {
-   WidgetsFlutterBinding.ensureInitialized();
+  WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
   runApp(MyApp());
-
 }
 
 class MyApp extends StatelessWidget {
@@ -25,14 +24,12 @@ class MyApp extends StatelessWidget {
             return const CircularProgressIndicator();
           }
           if (snapshot.hasData) {
-            return const ChatScreen();
+            return const HomeScreen();
           }
           return const AuthScreen();
         },
       ),
       title: 'Sevakar',
-   
     );
   }
 }
-

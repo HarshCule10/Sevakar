@@ -18,18 +18,19 @@ class _ChatScreenState extends State<ChatScreen> {
   final List<ChatMessage> _messages = [];
   bool _isAnalyzing = false;
   final ScrollController _scrollController = ScrollController();
-  
+
   // API key
   final String _apiKey = 'AIzaSyBDpgJ2C4bV1DOgX3yTwixnpxv4zjizdNM';
 
+  Future<Map<String, dynamic>> _analyzeWithGemini(String claim) async {
+    try {
+      // Update to use the latest gemini-2.0-flash model
+      final url = Uri.parse(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$_apiKey',
+      );
 
-Future<Map<String, dynamic>> _analyzeWithGemini(String claim) async {
-  try {
-    // Update to use the latest gemini-2.0-flash model
-    final url = Uri.parse('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$_apiKey');
-    
-    // Prepare the prompt for fact-checking
-    final prompt = '''
+      // Prepare the prompt for fact-checking
+      final prompt = '''
     Analyze the following claim for factual accuracy, credibility, and bias. 
     Your response should be in JSON format with the following structure:
     {
@@ -44,140 +45,141 @@ Future<Map<String, dynamic>> _analyzeWithGemini(String claim) async {
     
     Provide only the JSON response without any additional text.
     ''';
-    
-    final response = await http.post(
-      url,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode({
-        "contents": [
-          {
-            "parts": [
-              {
-                "text": prompt
-              }
-            ]
+
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          "contents": [
+            {
+              "parts": [
+                {"text": prompt},
+              ],
+            },
+          ],
+          "generationConfig": {
+            "temperature": 0.2,
+            "topK": 32,
+            "topP": 0.95,
+            "maxOutputTokens": 800,
+          },
+        }),
+      );
+
+      // Add detailed debugging information
+      print('Response status code: ${response.statusCode}');
+      print('Response body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        final responseData = jsonDecode(response.body);
+
+        // Extract text from the Gemini response
+        final generatedContent =
+            responseData['candidates'][0]['content']['parts'][0]['text'];
+
+        // Parse the JSON string from the response
+        try {
+          // Find the JSON object in the response
+          final jsonStartIndex = generatedContent.indexOf('{');
+          final jsonEndIndex = generatedContent.lastIndexOf('}') + 1;
+
+          if (jsonStartIndex >= 0 && jsonEndIndex > jsonStartIndex) {
+            final jsonString = generatedContent.substring(
+              jsonStartIndex,
+              jsonEndIndex,
+            );
+            final factCheckData = jsonDecode(jsonString);
+
+            // Ensure all required fields are present
+            return {
+              'accuracy': factCheckData['accuracy'] ?? 50,
+              'credibility': factCheckData['credibility'] ?? 50,
+              'bias': factCheckData['bias'] ?? 50,
+              'sources': factCheckData['sources'] ?? ['No sources provided'],
+              'summary': factCheckData['summary'] ?? 'No summary provided',
+            };
+          } else {
+            throw Exception('No valid JSON found in response');
           }
-        ],
-        "generationConfig": {
-          "temperature": 0.2,
-          "topK": 32,
-          "topP": 0.95,
-          "maxOutputTokens": 800
-        }
-      }),
-    );
-    
-    // Add detailed debugging information
-    print('Response status code: ${response.statusCode}');
-    print('Response body: ${response.body}');
-    
-    if (response.statusCode == 200) {
-      final responseData = jsonDecode(response.body);
-      
-      // Extract text from the Gemini response
-      final generatedContent = responseData['candidates'][0]['content']['parts'][0]['text'];
-      
-      // Parse the JSON string from the response
-      try {
-        // Find the JSON object in the response
-        final jsonStartIndex = generatedContent.indexOf('{');
-        final jsonEndIndex = generatedContent.lastIndexOf('}') + 1;
-        
-        if (jsonStartIndex >= 0 && jsonEndIndex > jsonStartIndex) {
-          final jsonString = generatedContent.substring(jsonStartIndex, jsonEndIndex);
-          final factCheckData = jsonDecode(jsonString);
-          
-          // Ensure all required fields are present
+        } catch (e) {
+          // Fallback if JSON parsing fails
           return {
-            'accuracy': factCheckData['accuracy'] ?? 50,
-            'credibility': factCheckData['credibility'] ?? 50,
-            'bias': factCheckData['bias'] ?? 50,
-            'sources': factCheckData['sources'] ?? ['No sources provided'],
-            'summary': factCheckData['summary'] ?? 'No summary provided'
+            'accuracy': 50,
+            'credibility': 50,
+            'bias': 50,
+            'sources': ['Unable to retrieve sources'],
+            'summary':
+                'Unable to parse the response from the AI model. The claim may be too complex or ambiguous.',
           };
-        } else {
-          throw Exception('No valid JSON found in response');
         }
-      } catch (e) {
-        // Fallback if JSON parsing fails
-        return {
-          'accuracy': 50,
-          'credibility': 50,
-          'bias': 50,
-          'sources': ['Unable to retrieve sources'],
-          'summary': 'Unable to parse the response from the AI model. The claim may be too complex or ambiguous.'
-        };
+      } else {
+        throw Exception(
+          'API request failed with status: ${response.statusCode}, message: ${response.body}',
+        );
       }
-    } else {
-      throw Exception('API request failed with status: ${response.statusCode}, message: ${response.body}');
+    } catch (e) {
+      print('Error in API call: $e');
+      return {
+        'accuracy': 50,
+        'credibility': 50,
+        'bias': 50,
+        'sources': ['Error retrieving sources'],
+        'summary':
+            'An error occurred while analyzing this claim. Please try again later.',
+      };
     }
-  } catch (e) {
-    print('Error in API call: $e');
-    return {
-      'accuracy': 50,
-      'credibility': 50,
-      'bias': 50,
-      'sources': ['Error retrieving sources'],
-      'summary': 'An error occurred while analyzing this claim. Please try again later.'
-    };
   }
-}
-void _handleSubmitted(String text) async {
-  if (text.trim().isEmpty) return;
-  
-  _messageController.clear();
 
-  setState(() {
-    _messages.add(
-      ChatMessage(
-        text: text,
-        isUser: true,
-      ),
-    );
-    _isAnalyzing = true;
-  });
+  void _handleSubmitted(String text) async {
+    if (text.trim().isEmpty) return;
 
-  // Scroll to the bottom after adding a new message
-  WidgetsBinding.instance.addPostFrameCallback((_) {
-    _scrollController.animateTo(
-      0.0,
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeOut,
-    );
-  });
+    _messageController.clear();
 
-  try {
-    // Call the Gemini API for fact checking
-    final factCheckResult = await _analyzeWithGemini(text);
-    
     setState(() {
-      _messages.add(
-        ChatMessage(
-          text: 'Fact Check Analysis:',
-          isUser: false,
-          factCheckData: factCheckResult,
-        ),
-      );
-      _isAnalyzing = false;
+      _messages.add(ChatMessage(text: text, isUser: true));
+      _isAnalyzing = true;
     });
-    
-    // Save fact check to Firebase
-    await FirebaseHelper.saveFactCheck(text, factCheckResult);
-    
-  } catch (e) {
-    setState(() {
-      _messages.add(
-        ChatMessage(
-          text: 'Sorry, I encountered an error while analyzing your claim. Please try again.',
-          isUser: false,
-        ),
+
+    // Scroll to the bottom after adding a new message
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scrollController.animateTo(
+        0.0,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
       );
-      _isAnalyzing = false;
     });
+
+    try {
+      // Call the Gemini API for fact checking
+      final factCheckResult = await _analyzeWithGemini(text);
+
+      setState(() {
+        _messages.add(
+          ChatMessage(
+            text: 'Fact Check Analysis:',
+            isUser: false,
+            factCheckData: factCheckResult,
+          ),
+        );
+        _isAnalyzing = false;
+      });
+
+      // Save fact check to Firebase
+      await FirebaseHelper.saveFactCheck(text, factCheckResult);
+    } catch (e) {
+      setState(() {
+        _messages.add(
+          ChatMessage(
+            text:
+                'Sorry, I encountered an error while analyzing your claim. Please try again.',
+            isUser: false,
+          ),
+        );
+        _isAnalyzing = false;
+      });
+    }
   }
-}
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -187,9 +189,7 @@ void _handleSubmitted(String text) async {
         child: Column(
           children: [
             Expanded(
-              child: _messages.isEmpty 
-                  ? _buildEmptyState() 
-                  : _buildChatList(),
+              child: _messages.isEmpty ? _buildEmptyState() : _buildChatList(),
             ),
             const Divider(height: 1.0, color: Colors.black12),
             _buildAnalyzingIndicator(),
@@ -200,133 +200,126 @@ void _handleSubmitted(String text) async {
     );
   }
 
-AppBar _buildAppBar() {
-  return AppBar(
-    title: const Text(
-      'Sevakar',
-      style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
-    ),
-    backgroundColor: Colors.white,
-    elevation: 1,
-    iconTheme: const IconThemeData(color: Colors.black),
-    actions: [
-      // History button
-      IconButton(
-        icon: const Icon(Icons.history, color: Colors.black),
-        tooltip: 'Fact Check History',
-        onPressed: () {
-          _showFactCheckHistoryDialog();
-        },
+  AppBar _buildAppBar() {
+    return AppBar(
+      title: const Text(
+        'Sevakar',
+        style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
       ),
-      // New Chat button
-      IconButton(
-        icon: const Icon(Icons.add_comment, color: Colors.black),
-        tooltip: 'New Chat',
-        onPressed: () {
-          // Show confirmation dialog
-          showDialog(
-            context: context,
-            builder: (BuildContext context) {
-              return AlertDialog(
-                title: const Text('Start New Chat'),
-                content: const Text('This will clear the current conversation. Continue?'),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                actions: [
-                  TextButton(
-                    child: const Text('Cancel'),
-                    onPressed: () {
-                      Navigator.of(context).pop();
-                    },
+      backgroundColor: Colors.white,
+      elevation: 1,
+      automaticallyImplyLeading: false,
+      iconTheme: const IconThemeData(color: Colors.black),
+      actions: [
+        // History button
+        IconButton(
+          icon: const Icon(Icons.history, color: Colors.black),
+          tooltip: 'Fact Check History',
+          onPressed: () {
+            _showFactCheckHistoryDialog();
+          },
+        ),
+        // New Chat button
+        IconButton(
+          icon: const Icon(Icons.add_comment, color: Colors.black),
+          tooltip: 'New Chat',
+          onPressed: () {
+            // Show confirmation dialog
+            showDialog(
+              context: context,
+              builder: (BuildContext context) {
+                return AlertDialog(
+                  title: const Text('Start New Chat'),
+                  content: const Text(
+                    'This will clear the current conversation. Continue?',
                   ),
-                  TextButton(
-                    child: const Text('Clear Chat'),
-                    onPressed: () {
-                      // Clear the messages list
-                      setState(() {
-                        _messages.clear();
-                      });
-                      _messageController.clear();
-                      Navigator.of(context).pop();
-                      
-                      // Show a confirmation snackbar
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Chat cleared!'),
-                          duration: Duration(seconds: 2),
-                          behavior: SnackBarBehavior.floating,
-                        ),
-                      );
-                    },
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
                   ),
-                ],
-              );
-            },
-          );
-        },
-      ),
-      // Profile button
-      Padding(
-        padding: const EdgeInsets.only(right: 8.0),
-        child: GestureDetector(
-          onTap: () {
-            // Profile screen navigation would go here
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => const ProfilePage(),
-              ),
+                  actions: [
+                    TextButton(
+                      child: const Text('Cancel'),
+                      onPressed: () {
+                        Navigator.of(context).pop();
+                      },
+                    ),
+                    TextButton(
+                      child: const Text('Clear Chat'),
+                      onPressed: () {
+                        // Clear the messages list
+                        setState(() {
+                          _messages.clear();
+                        });
+                        _messageController.clear();
+                        Navigator.of(context).pop();
+
+                        // Show a confirmation snackbar
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Chat cleared!'),
+                            duration: Duration(seconds: 2),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                );
+              },
             );
           },
-          child: const CircleAvatar(
-            backgroundColor: Colors.black,
-            radius: 18,
-            child: Icon(
-              Icons.person,
-              color: Colors.white,
-              size: 20,
+        ),
+        // Profile button
+        Padding(
+          padding: const EdgeInsets.only(right: 8.0),
+          child: GestureDetector(
+            onTap: () {
+              // Profile screen navigation would go here
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const ProfilePage()),
+              );
+            },
+            child: const CircleAvatar(
+              backgroundColor: Colors.black,
+              radius: 18,
+              child: Icon(Icons.person, color: Colors.white, size: 20),
             ),
           ),
         ),
-      ),
-    ],
-  );
-}
+      ],
+    );
+  }
 
-void _showFactCheckHistoryDialog() {
-  showDialog(
-    context: context,
-    builder: (BuildContext context) {
-      return Dialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16.0),
-        ),
-        child: FactCheckHistoryPanel(
-          onHistoryItemSelected: (claim, factCheckResult) {
-            setState(() {
-              _messages.add(
-                ChatMessage(
-                  text: claim,
-                  isUser: true,
-                ),
-              );
-              
-              _messages.add(
-                ChatMessage(
-                  text: 'Fact Check Analysis:',
-                  isUser: false,
-                  factCheckData: factCheckResult,
-                ),
-              );
-            });
-          },
-        ),
-      );
-    },
-  );
-}
+  void _showFactCheckHistoryDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16.0),
+          ),
+          child: FactCheckHistoryPanel(
+            onHistoryItemSelected: (claim, factCheckResult) {
+              setState(() {
+                _messages.add(ChatMessage(text: claim, isUser: true));
 
-// Method to show chat history dialog
+                _messages.add(
+                  ChatMessage(
+                    text: 'Fact Check Analysis:',
+                    isUser: false,
+                    factCheckData: factCheckResult,
+                  ),
+                );
+              });
+            },
+          ),
+        );
+      },
+    );
+  }
 
+  // Method to show chat history dialog
 
   Widget _buildEmptyState() {
     return Center(
@@ -360,10 +353,7 @@ void _showFactCheckHistoryDialog() {
             child: Text(
               'Enter a claim or statement to verify its accuracy, credibility, and potential bias.',
               textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 15,
-                color: Colors.black54,
-              ),
+              style: TextStyle(fontSize: 15, color: Colors.black54),
             ),
           ),
         ],
@@ -384,23 +374,26 @@ void _showFactCheckHistoryDialog() {
   Widget _buildAnalyzingIndicator() {
     return _isAnalyzing
         ? Container(
-            padding: const EdgeInsets.symmetric(vertical: 12.0),
-            child: const Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2.0,
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.black),
-                  ),
+          padding: const EdgeInsets.symmetric(vertical: 12.0),
+          child: const Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.0,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.black),
                 ),
-                SizedBox(width: 12),
-                Text('Analyzing facts...', style: TextStyle(color: Colors.black54)),
-              ],
-            ),
-          )
+              ),
+              SizedBox(width: 12),
+              Text(
+                'Analyzing facts...',
+                style: TextStyle(color: Colors.black54),
+              ),
+            ],
+          ),
+        )
         : Container();
   }
 
@@ -454,9 +447,10 @@ void _showFactCheckHistoryDialog() {
             ),
             child: IconButton(
               icon: const Icon(Icons.send, color: Colors.white, size: 20),
-              onPressed: _isAnalyzing
-                  ? null
-                  : () => _handleSubmitted(_messageController.text),
+              onPressed:
+                  _isAnalyzing
+                      ? null
+                      : () => _handleSubmitted(_messageController.text),
             ),
           ),
         ],
@@ -484,16 +478,21 @@ class ChatMessage extends StatelessWidget {
       margin: const EdgeInsets.symmetric(vertical: 10.0),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+        mainAxisAlignment:
+            isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
         children: [
           if (!isUser) _buildAIAvatar(),
           const SizedBox(width: 12),
           Flexible(
             child: Column(
-              crossAxisAlignment: isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+              crossAxisAlignment:
+                  isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16.0,
+                    vertical: 12.0,
+                  ),
                   decoration: BoxDecoration(
                     color: isUser ? Colors.black : Colors.grey[100],
                     borderRadius: BorderRadius.circular(20.0),
@@ -513,7 +512,7 @@ class ChatMessage extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (factCheckData != null) 
+                if (factCheckData != null)
                   Padding(
                     padding: const EdgeInsets.only(top: 8.0),
                     child: _buildFactCheckResultsCard(context),
@@ -532,11 +531,7 @@ class ChatMessage extends StatelessWidget {
     return const CircleAvatar(
       backgroundColor: Colors.black,
       radius: 16,
-      child: Icon(
-        Icons.person,
-        color: Colors.white,
-        size: 18,
-      ),
+      child: Icon(Icons.person, color: Colors.white, size: 18),
     );
   }
 
@@ -544,11 +539,7 @@ class ChatMessage extends StatelessWidget {
     return const CircleAvatar(
       backgroundColor: Colors.black,
       radius: 16,
-      child: Icon(
-        Icons.assistant,
-        color: Colors.white,
-        size: 18,
-      ),
+      child: Icon(Icons.assistant, color: Colors.white, size: 18),
     );
   }
 
@@ -559,10 +550,11 @@ class ChatMessage extends StatelessWidget {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => FactCheckDetailsScreen(
-              factCheckData: factCheckData!,
-              originalClaim: isUser ? text : "Analyzed claim",
-            ),
+            builder:
+                (context) => FactCheckDetailsScreen(
+                  factCheckData: factCheckData!,
+                  originalClaim: isUser ? text : "Analyzed claim",
+                ),
           ),
         );
       },
@@ -596,18 +588,17 @@ class ChatMessage extends StatelessWidget {
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8.0,
+                    vertical: 4.0,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.blue.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(12.0),
                   ),
                   child: const Row(
                     children: [
-                      Icon(
-                        Icons.touch_app,
-                        color: Colors.blue,
-                        size: 14,
-                      ),
+                      Icon(Icons.touch_app, color: Colors.blue, size: 14),
                       SizedBox(width: 4.0),
                       Text(
                         'View Details',
@@ -635,7 +626,7 @@ class ChatMessage extends StatelessWidget {
   Widget _buildFactMeter(String label, int value) {
     Color meterColor;
     String assessment;
-    
+
     if (label == 'Bias Level') {
       if (value < 30) {
         meterColor = Colors.green;
