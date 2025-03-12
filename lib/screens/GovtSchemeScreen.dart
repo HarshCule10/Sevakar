@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:fchecker/screens/profilescreen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 class GovtSchemeScreen extends StatefulWidget {
   const GovtSchemeScreen({Key? key}) : super(key: key);
@@ -14,6 +16,13 @@ class _GovtSchemeScreenState extends State<GovtSchemeScreen> {
   final TextEditingController _searchController = TextEditingController();
   bool _isLoading = true;
   bool _hasCompletedProfile = false;
+  bool _isLoadingRecommendations = false;
+  Map<String, dynamic>? _userProfileData;
+  List<Map<String, dynamic>> _recommendedSchemes = [];
+
+  // API key for Gemini
+  final String _apiKey =
+      'AIzaSyBDpgJ2C4bV1DOgX3yTwixnpxv4zjizdNM'; // Use your API key
 
   // Firebase instances
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -83,10 +92,21 @@ class _GovtSchemeScreenState extends State<GovtSchemeScreen> {
           Map<String, dynamic>? userData =
               userDoc.data() as Map<String, dynamic>?;
 
-          if (userData != null && userData.containsKey('hasCompletedProfile')) {
+          if (userData != null) {
+            bool hasProfile =
+                userData.containsKey('hasCompletedProfile')
+                    ? userData['hasCompletedProfile'] as bool? ?? false
+                    : false;
+
             setState(() {
-              _hasCompletedProfile =
-                  userData['hasCompletedProfile'] as bool? ?? false;
+              _hasCompletedProfile = hasProfile;
+
+              if (hasProfile && userData.containsKey('additionalDetails')) {
+                _userProfileData =
+                    userData['additionalDetails'] as Map<String, dynamic>;
+                // Fetch personalized recommendations if profile is complete
+                _fetchPersonalizedRecommendations();
+              }
             });
           }
         }
@@ -97,6 +117,209 @@ class _GovtSchemeScreenState extends State<GovtSchemeScreen> {
       setState(() {
         _isLoading = false;
       });
+    }
+  }
+
+  Future<void> _fetchPersonalizedRecommendations() async {
+    if (_userProfileData == null) return;
+
+    setState(() {
+      _isLoadingRecommendations = true;
+    });
+
+    try {
+      // Extract relevant user data for the prompt
+      final personalInfo =
+          _userProfileData!['personalInfo'] as Map<String, dynamic>?;
+      final locationInfo =
+          _userProfileData!['locationInfo'] as Map<String, dynamic>?;
+      final economicInfo =
+          _userProfileData!['economicInfo'] as Map<String, dynamic>?;
+
+      if (personalInfo == null ||
+          locationInfo == null ||
+          economicInfo == null) {
+        throw Exception('Incomplete profile data');
+      }
+
+      // Create a structured profile summary for the prompt
+      final profileSummary = {
+        'age': personalInfo['age'],
+        'gender': personalInfo['gender'],
+        'caste': personalInfo['caste'],
+        'maritalStatus': personalInfo['maritalStatus'],
+        'state': locationInfo['state'],
+        'residenceArea': locationInfo['residenceArea'],
+        'occupation': economicInfo['occupation'],
+        'education': economicInfo['education'],
+        'annualIncome': economicInfo['annualIncome'],
+        'familyMembers': economicInfo['familyMembers'],
+        'employmentStatus': economicInfo['employmentStatus'],
+      };
+
+      // Call Gemini API to get personalized recommendations
+      final recommendations = await _getRecommendationsFromGemini(
+        profileSummary,
+      );
+
+      setState(() {
+        _recommendedSchemes = recommendations;
+        _isLoadingRecommendations = false;
+      });
+    } catch (e) {
+      print('Error fetching recommendations: $e');
+      setState(() {
+        _isLoadingRecommendations = false;
+      });
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> _getRecommendationsFromGemini(
+    Map<String, dynamic> profileData,
+  ) async {
+    try {
+      // Update to use the latest gemini-2.0-flash model
+      final url = Uri.parse(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$_apiKey',
+      );
+
+      // Format the profile data for the prompt
+      final formattedProfile = profileData.entries
+          .map((e) => '${e.key}: ${e.value.toString()}')
+          .join('\n');
+
+      // Prepare the prompt for scheme recommendations
+      final prompt = '''
+Based on the following user profile, recommend 5 Indian government schemes that this person might be eligible for. 
+For each scheme, provide the name, a brief description, eligibility criteria, benefits, and relevant keywords for searching.
+
+User Profile:
+$formattedProfile
+
+Format your response as a JSON array with the following structure for each scheme:
+[
+  {
+    "title": "Scheme Name",
+    "description": "Brief description of the scheme",
+    "eligibility": "Who is eligible for this scheme",
+    "benefits": "What benefits the scheme provides",
+    "category": "Category of the scheme (e.g., Agriculture, Healthcare, Education)",
+    "keywords": ["keyword1", "keyword2", "keyword3"]
+  },
+  ...
+]
+
+Provide only the JSON response without any additional text.
+''';
+
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          "contents": [
+            {
+              "parts": [
+                {"text": prompt},
+              ],
+            },
+          ],
+          "generationConfig": {
+            "temperature": 0.2,
+            "topK": 32,
+            "topP": 0.95,
+            "maxOutputTokens": 1024,
+          },
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final responseData = jsonDecode(response.body);
+
+        // Extract text from the Gemini response
+        final generatedContent =
+            responseData['candidates'][0]['content']['parts'][0]['text'];
+
+        // Parse the JSON string from the response
+        try {
+          // Find the JSON array in the response
+          final jsonStartIndex = generatedContent.indexOf('[');
+          final jsonEndIndex = generatedContent.lastIndexOf(']') + 1;
+
+          if (jsonStartIndex >= 0 && jsonEndIndex > jsonStartIndex) {
+            final jsonString = generatedContent.substring(
+              jsonStartIndex,
+              jsonEndIndex,
+            );
+
+            final List<dynamic> schemesData = jsonDecode(jsonString);
+
+            // Convert to the expected format
+            return schemesData.map((scheme) {
+              // Add an icon based on the category
+              IconData icon = Icons.policy;
+
+              switch (scheme['category'].toString().toLowerCase()) {
+                case 'agriculture':
+                  icon = Icons.agriculture;
+                  break;
+                case 'healthcare':
+                  icon = Icons.health_and_safety;
+                  break;
+                case 'education':
+                  icon = Icons.school;
+                  break;
+                case 'housing':
+                  icon = Icons.home;
+                  break;
+                case 'employment':
+                  icon = Icons.work;
+                  break;
+                case 'financial':
+                  icon = Icons.account_balance;
+                  break;
+                case 'women':
+                  icon = Icons.female;
+                  break;
+                case 'children':
+                  icon = Icons.child_care;
+                  break;
+                case 'elderly':
+                  icon = Icons.elderly;
+                  break;
+                case 'disability':
+                  icon = Icons.accessible;
+                  break;
+                default:
+                  icon = Icons.policy;
+              }
+
+              return {
+                'title': scheme['title'],
+                'description': scheme['description'],
+                'eligibility': scheme['eligibility'],
+                'benefits':
+                    scheme['benefits'] ?? 'Benefits as per scheme guidelines',
+                'category': scheme['category'],
+                'keywords': scheme['keywords'] ?? [],
+                'icon': icon,
+                'isRecommended': true,
+              };
+            }).toList();
+          } else {
+            throw Exception('No valid JSON found in response');
+          }
+        } catch (e) {
+          print('Error parsing Gemini response: $e');
+          return [];
+        }
+      } else {
+        throw Exception(
+          'API request failed with status: ${response.statusCode}, message: ${response.body}',
+        );
+      }
+    } catch (e) {
+      print('Error in Gemini API call: $e');
+      return [];
     }
   }
 
@@ -114,20 +337,43 @@ class _GovtSchemeScreenState extends State<GovtSchemeScreen> {
     setState(() {
       if (query.isEmpty) {
         _filteredSchemes = List.from(_schemes);
+
+        // Add recommended schemes if available
+        if (_recommendedSchemes.isNotEmpty) {
+          // Remove any duplicates by title
+          final existingTitles =
+              _filteredSchemes.map((s) => s['title']).toSet();
+          _filteredSchemes.addAll(
+            _recommendedSchemes.where(
+              (s) => !existingTitles.contains(s['title']),
+            ),
+          );
+        }
       } else {
+        // Search in both standard schemes and recommended schemes
+        final allSchemes = [..._schemes, ..._recommendedSchemes];
+
         _filteredSchemes =
-            _schemes
+            allSchemes
                 .where(
                   (scheme) =>
-                      scheme['title'].toLowerCase().contains(
+                      scheme['title'].toString().toLowerCase().contains(
                         query.toLowerCase(),
                       ) ||
-                      scheme['description'].toLowerCase().contains(
+                      scheme['description'].toString().toLowerCase().contains(
                         query.toLowerCase(),
                       ) ||
-                      scheme['category'].toLowerCase().contains(
+                      scheme['category'].toString().toLowerCase().contains(
                         query.toLowerCase(),
-                      ),
+                      ) ||
+                      // Search in keywords if available
+                      (scheme.containsKey('keywords') &&
+                          (scheme['keywords'] as List<dynamic>).any(
+                            (keyword) => keyword
+                                .toString()
+                                .toLowerCase()
+                                .contains(query.toLowerCase()),
+                          )),
                 )
                 .toList();
       }
@@ -175,6 +421,37 @@ class _GovtSchemeScreenState extends State<GovtSchemeScreen> {
                   children: [
                     _buildSearchBar(),
                     _buildCategoryFilters(),
+                    if (_isLoadingRecommendations)
+                      Container(
+                        padding: const EdgeInsets.symmetric(vertical: 8.0),
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  Colors.black,
+                                ),
+                              ),
+                            ),
+                            SizedBox(width: 8),
+                            Text(
+                              'Finding schemes for you...',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontStyle: FontStyle.italic,
+                                color: Colors.black54,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    if (_recommendedSchemes.isNotEmpty &&
+                        !_isLoadingRecommendations)
+                      _buildRecommendedSchemesSection(),
                     Expanded(
                       child:
                           _filteredSchemes.isEmpty
@@ -184,6 +461,40 @@ class _GovtSchemeScreenState extends State<GovtSchemeScreen> {
                   ],
                 ),
               ),
+    );
+  }
+
+  Widget _buildRecommendedSchemesSection() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.recommend, size: 18, color: Colors.black),
+              const SizedBox(width: 8),
+              const Text(
+                'Recommended for You',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              const Spacer(),
+              TextButton(
+                onPressed: _fetchPersonalizedRecommendations,
+                child: const Text(
+                  'Refresh',
+                  style: TextStyle(color: Colors.black),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Based on your profile information',
+            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+          ),
+        ],
+      ),
     );
   }
 
@@ -290,6 +601,8 @@ class _GovtSchemeScreenState extends State<GovtSchemeScreen> {
       itemCount: _filteredSchemes.length,
       itemBuilder: (context, index) {
         final scheme = _filteredSchemes[index];
+        final bool isRecommended = scheme['isRecommended'] == true;
+
         return Card(
           elevation: 2,
           margin: const EdgeInsets.only(bottom: 16.0),
@@ -326,12 +639,52 @@ class _GovtSchemeScreenState extends State<GovtSchemeScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              scheme['title'],
-                              style: const TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                              ),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    scheme['title'],
+                                    style: const TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                                if (isRecommended)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8.0,
+                                      vertical: 4.0,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.green.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(12.0),
+                                      border: Border.all(
+                                        color: Colors.green,
+                                        width: 1.0,
+                                      ),
+                                    ),
+                                    child: const Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.check_circle,
+                                          color: Colors.green,
+                                          size: 12,
+                                        ),
+                                        SizedBox(width: 4),
+                                        Text(
+                                          'Recommended',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.green,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                              ],
                             ),
                             const SizedBox(height: 4.0),
                             Container(
@@ -383,6 +736,36 @@ class _GovtSchemeScreenState extends State<GovtSchemeScreen> {
                       ),
                     ],
                   ),
+                  if (scheme.containsKey('keywords') &&
+                      (scheme['keywords'] as List).isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8.0),
+                      child: Wrap(
+                        spacing: 4,
+                        runSpacing: 4,
+                        children:
+                            (scheme['keywords'] as List).map<Widget>((keyword) {
+                              return Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6.0,
+                                  vertical: 2.0,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey[100],
+                                  borderRadius: BorderRadius.circular(4.0),
+                                  border: Border.all(color: Colors.grey[300]!),
+                                ),
+                                child: Text(
+                                  keyword.toString(),
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: Colors.grey[700],
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -393,6 +776,10 @@ class _GovtSchemeScreenState extends State<GovtSchemeScreen> {
   }
 
   void _showSchemeDetails(Map<String, dynamic> scheme) {
+    final bool isRecommended = scheme['isRecommended'] == true;
+    final List<dynamic> keywords =
+        scheme.containsKey('keywords') ? scheme['keywords'] as List : [];
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -441,12 +828,52 @@ class _GovtSchemeScreenState extends State<GovtSchemeScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              scheme['title'],
-                              style: const TextStyle(
-                                fontSize: 24,
-                                fontWeight: FontWeight.bold,
-                              ),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    scheme['title'],
+                                    style: const TextStyle(
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                                if (isRecommended)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8.0,
+                                      vertical: 4.0,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.green.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(12.0),
+                                      border: Border.all(
+                                        color: Colors.green,
+                                        width: 1.0,
+                                      ),
+                                    ),
+                                    child: const Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.check_circle,
+                                          color: Colors.green,
+                                          size: 12,
+                                        ),
+                                        SizedBox(width: 4),
+                                        Text(
+                                          'Recommended',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.green,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                              ],
                             ),
                             const SizedBox(height: 4),
                             Container(
@@ -493,22 +920,60 @@ class _GovtSchemeScreenState extends State<GovtSchemeScreen> {
                   ),
                   const SizedBox(height: 24),
                   const Text(
+                    'Benefits',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    scheme.containsKey('benefits')
+                        ? scheme['benefits']
+                        : 'Financial assistance, subsidies, and other benefits as per the scheme guidelines.',
+                    style: const TextStyle(fontSize: 16, color: Colors.black87),
+                  ),
+                  if (keywords.isNotEmpty) ...[
+                    const SizedBox(height: 24),
+                    const Text(
+                      'Keywords',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children:
+                          keywords.map<Widget>((keyword) {
+                            return Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12.0,
+                                vertical: 6.0,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.grey[100],
+                                borderRadius: BorderRadius.circular(20.0),
+                                border: Border.all(color: Colors.grey[300]!),
+                              ),
+                              child: Text(
+                                keyword.toString(),
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.grey[700],
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                    ),
+                  ],
+                  const SizedBox(height: 24),
+                  const Text(
                     'How to Apply',
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 8),
                   const Text(
                     'Visit the nearest Common Service Center (CSC) or apply online through the official website. You will need to provide identity proof, address proof, and other relevant documents.',
-                    style: TextStyle(fontSize: 16, color: Colors.black87),
-                  ),
-                  const SizedBox(height: 24),
-                  const Text(
-                    'Benefits',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Financial assistance, subsidies, and other benefits as per the scheme guidelines.',
                     style: TextStyle(fontSize: 16, color: Colors.black87),
                   ),
                   const SizedBox(height: 32),
