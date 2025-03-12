@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:fchecker/screens/profilescreen.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class GovtSchemeScreen extends StatefulWidget {
   const GovtSchemeScreen({Key? key}) : super(key: key);
@@ -10,6 +12,12 @@ class GovtSchemeScreen extends StatefulWidget {
 
 class _GovtSchemeScreenState extends State<GovtSchemeScreen> {
   final TextEditingController _searchController = TextEditingController();
+  bool _isLoading = true;
+  bool _hasCompletedProfile = false;
+
+  // Firebase instances
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
 
   // Sample list of government schemes
   final List<Map<String, dynamic>> _schemes = [
@@ -57,6 +65,49 @@ class _GovtSchemeScreenState extends State<GovtSchemeScreen> {
   void initState() {
     super.initState();
     _filteredSchemes = List.from(_schemes);
+    _checkProfileStatus();
+  }
+
+  Future<void> _checkProfileStatus() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      User? currentUser = _auth.currentUser;
+      if (currentUser != null) {
+        DocumentSnapshot userDoc =
+            await _firestore.collection('users').doc(currentUser.uid).get();
+
+        if (userDoc.exists) {
+          Map<String, dynamic>? userData =
+              userDoc.data() as Map<String, dynamic>?;
+
+          if (userData != null && userData.containsKey('hasCompletedProfile')) {
+            setState(() {
+              _hasCompletedProfile =
+                  userData['hasCompletedProfile'] as bool? ?? false;
+            });
+          }
+        }
+      }
+    } catch (e) {
+      print('Error checking profile status: $e');
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  void _navigateToProfile() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const ProfilePage()),
+    ).then((_) {
+      // Refresh profile status when returning from profile page
+      _checkProfileStatus();
+    });
   }
 
   void _filterSchemes(String query) {
@@ -100,12 +151,7 @@ class _GovtSchemeScreenState extends State<GovtSchemeScreen> {
           Padding(
             padding: const EdgeInsets.only(right: 8.0),
             child: GestureDetector(
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const ProfilePage()),
-                );
-              },
+              onTap: _navigateToProfile,
               child: const CircleAvatar(
                 backgroundColor: Colors.black,
                 radius: 18,
@@ -115,20 +161,29 @@ class _GovtSchemeScreenState extends State<GovtSchemeScreen> {
           ),
         ],
       ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            _buildSearchBar(),
-            _buildCategoryFilters(),
-            Expanded(
-              child:
-                  _filteredSchemes.isEmpty
-                      ? _buildEmptyState()
-                      : _buildSchemesList(),
-            ),
-          ],
-        ),
-      ),
+      body:
+          _isLoading
+              ? const Center(
+                child: CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.black),
+                ),
+              )
+              : !_hasCompletedProfile
+              ? _buildProfilePrompt()
+              : SafeArea(
+                child: Column(
+                  children: [
+                    _buildSearchBar(),
+                    _buildCategoryFilters(),
+                    Expanded(
+                      child:
+                          _filteredSchemes.isEmpty
+                              ? _buildEmptyState()
+                              : _buildSchemesList(),
+                    ),
+                  ],
+                ),
+              ),
     );
   }
 
@@ -477,6 +532,59 @@ class _GovtSchemeScreenState extends State<GovtSchemeScreen> {
           },
         );
       },
+    );
+  }
+
+  Widget _buildProfilePrompt() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 100,
+              height: 100,
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.person_outline,
+                size: 60,
+                color: Colors.black,
+              ),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              'Complete Your Profile',
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'To check your eligibility for government schemes, we need some additional information about you.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+            ),
+            const SizedBox(height: 32),
+            ElevatedButton(
+              onPressed: _navigateToProfile,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.black,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 32,
+                  vertical: 16,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              child: const Text('Complete Profile'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

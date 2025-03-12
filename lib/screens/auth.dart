@@ -13,26 +13,26 @@ class AuthScreen extends StatefulWidget {
 class _AuthScreenState extends State<AuthScreen> {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+  final TextEditingController _usernameController = TextEditingController(); // New username controller
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   bool _isObscured = true;
   bool registered = true;
 
   // Function to create user in Firestore
-  Future<void> _createUserInFirestore(User user, String email) async {
-  try {
-    // Include a name field to avoid query errors
-    await _firestore.collection('users').doc(user.uid).set({
-      'email': email,
-      'name': '', // Empty string for the name field
-      'createdAt': FieldValue.serverTimestamp(),
-    });
-    print('User document created in Firestore');
-  } catch (e) {
-    print('Error creating user in Firestore: $e');
-    // You may want to show an error message to the user here
+  Future<void> _createUserInFirestore(User user, String email, {String username = ''}) async {
+    try {
+      await _firestore.collection('users').doc(user.uid).set({
+        'email': email,
+        'name': username, // Now using the username parameter
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+      print('User document created in Firestore');
+    } catch (e) {
+      print('Error creating user in Firestore: $e');
+      // You may want to show an error message to the user here
+    }
   }
-}
 
   // Sign in function
   void _signIn() async {
@@ -42,7 +42,7 @@ class _AuthScreenState extends State<AuthScreen> {
         password: _passwordController.text.trim(),
       );
 
-      // Ensure the user exists in Firestore when they sign in
+      // We don't need username for sign in, passing empty string
       await _createUserInFirestore(userCredential.user!, _emailController.text.trim());
 
       Navigator.of(context).pushReplacement(
@@ -60,20 +60,36 @@ class _AuthScreenState extends State<AuthScreen> {
       setState(() {
         _emailController.clear();
         _passwordController.clear();
+        _usernameController.clear(); // Clear username field too
       });
     }
   }
 
   // Sign up function
   void _signUp() async {
+    // Validate that username is not empty
+    if (_usernameController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Username cannot be empty'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+    
     try {
       UserCredential userCredential = await _auth.createUserWithEmailAndPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
       );
       
-      // Create the user document in Firestore
-      await _createUserInFirestore(userCredential.user!, _emailController.text.trim());
+      // Create the user document in Firestore with username
+      await _createUserInFirestore(
+        userCredential.user!, 
+        _emailController.text.trim(),
+        username: _usernameController.text.trim(),
+      );
 
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (context) => const ChatScreen()),
@@ -90,6 +106,7 @@ class _AuthScreenState extends State<AuthScreen> {
       setState(() {
         _emailController.clear();
         _passwordController.clear();
+        _usernameController.clear();
       });
     }
   }
@@ -111,6 +128,11 @@ class _AuthScreenState extends State<AuthScreen> {
                   const SizedBox(height: 48.0),
                   _buildTitle(),
                   const SizedBox(height: 32.0),
+                  // Show username field only when registering
+                  if (!registered) ...[
+                    _buildUsernameField(),
+                    const SizedBox(height: 16.0),
+                  ],
                   _buildEmailField(),
                   const SizedBox(height: 16.0),
                   _buildPasswordField(),
@@ -129,6 +151,32 @@ class _AuthScreenState extends State<AuthScreen> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  // New method to build username field
+  Widget _buildUsernameField() {
+    return TextField(
+      controller: _usernameController,
+      keyboardType: TextInputType.name,
+      style: const TextStyle(color: Colors.black),
+      decoration: InputDecoration(
+        labelText: 'Username',
+        labelStyle: const TextStyle(color: Colors.black54),
+        hintText: 'Enter your username',
+        hintStyle: const TextStyle(color: Colors.black38),
+        prefixIcon: const Icon(Icons.person_outline, color: Colors.black),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Colors.black26),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Colors.black),
+        ),
+        filled: true,
+        fillColor: Colors.grey[50],
       ),
     );
   }
