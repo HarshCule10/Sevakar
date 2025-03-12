@@ -419,39 +419,60 @@ Provide only the JSON response without any additional text.
               : SafeArea(
                 child: Column(
                   children: [
-                    _buildSearchBar(),
-                    _buildCategoryFilters(),
-                    if (_isLoadingRecommendations)
-                      Container(
-                        padding: const EdgeInsets.symmetric(vertical: 8.0),
-                        child: const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  Colors.black,
-                                ),
-                              ),
-                            ),
-                            SizedBox(width: 8),
-                            Text(
-                              'Finding schemes for you...',
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontStyle: FontStyle.italic,
-                                color: Colors.black54,
-                              ),
-                            ),
-                          ],
-                        ),
+                    // Top section container with shadow
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.05),
+                            offset: const Offset(0, 2),
+                            blurRadius: 6,
+                          ),
+                        ],
                       ),
-                    if (_recommendedSchemes.isNotEmpty &&
-                        !_isLoadingRecommendations)
-                      _buildRecommendedSchemesSection(),
+                      child: Column(
+                        children: [
+                          _buildSearchBar(),
+                          _buildCategoryFilters(),
+                          if (_isLoadingRecommendations)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 12.0,
+                              ),
+                              child: const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        Colors.black,
+                                      ),
+                                    ),
+                                  ),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    'Finding schemes for you...',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontStyle: FontStyle.italic,
+                                      color: Colors.black54,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          if (_recommendedSchemes.isNotEmpty &&
+                              !_isLoadingRecommendations)
+                            _buildRecommendedSchemesSection(),
+                          const SizedBox(height: 8),
+                        ],
+                      ),
+                    ),
+                    // Schemes list
                     Expanded(
                       child:
                           _filteredSchemes.isEmpty
@@ -464,43 +485,9 @@ Provide only the JSON response without any additional text.
     );
   }
 
-  Widget _buildRecommendedSchemesSection() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.recommend, size: 18, color: Colors.black),
-              const SizedBox(width: 8),
-              const Text(
-                'Recommended for You',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-              const Spacer(),
-              TextButton(
-                onPressed: _fetchPersonalizedRecommendations,
-                child: const Text(
-                  'Refresh',
-                  style: TextStyle(color: Colors.black),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Based on your profile information',
-            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildSearchBar() {
-    return Container(
-      padding: const EdgeInsets.all(16.0),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 12.0),
       child: TextField(
         controller: _searchController,
         onChanged: _filterSchemes,
@@ -517,7 +504,9 @@ Provide only the JSON response without any additional text.
             vertical: 0.0,
             horizontal: 20.0,
           ),
+          hintStyle: TextStyle(color: Colors.grey[500]),
         ),
+        style: const TextStyle(fontSize: 16),
       ),
     );
   }
@@ -532,64 +521,128 @@ Provide only the JSON response without any additional text.
       'Energy',
     ];
 
-    return Container(
-      height: 50,
-      padding: const EdgeInsets.symmetric(horizontal: 8.0),
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        itemCount: categories.length,
-        itemBuilder: (context, index) {
-          return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4.0),
-            child: FilterChip(
-              label: Text(categories[index]),
-              selected: false,
-              onSelected: (selected) {
-                setState(() {
-                  if (categories[index] == 'All') {
-                    _filteredSchemes = List.from(_schemes);
-                  } else {
-                    _filteredSchemes =
-                        _schemes
-                            .where(
-                              (scheme) =>
-                                  scheme['category'] == categories[index],
-                            )
-                            .toList();
-                  }
-                });
-              },
-              backgroundColor: Colors.grey[100],
-              selectedColor: Colors.black,
-              checkmarkColor: Colors.white,
-              labelStyle: const TextStyle(color: Colors.black),
-            ),
-          );
-        },
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: SizedBox(
+        height: 40,
+        child: ListView.builder(
+          scrollDirection: Axis.horizontal,
+          itemCount: categories.length,
+          padding: const EdgeInsets.symmetric(horizontal: 12.0),
+          itemBuilder: (context, index) {
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4.0),
+              child: FilterChip(
+                label: Text(
+                  categories[index],
+                  style: const TextStyle(fontSize: 13),
+                ),
+                selected: false,
+                onSelected: (selected) {
+                  setState(() {
+                    if (categories[index] == 'All') {
+                      _filteredSchemes = List.from(_schemes);
+
+                      // Add recommended schemes if available
+                      if (_recommendedSchemes.isNotEmpty) {
+                        final existingTitles =
+                            _filteredSchemes.map((s) => s['title']).toSet();
+                        _filteredSchemes.addAll(
+                          _recommendedSchemes.where(
+                            (s) => !existingTitles.contains(s['title']),
+                          ),
+                        );
+                      }
+                    } else {
+                      // Filter both standard and recommended schemes
+                      final allSchemes = [..._schemes, ..._recommendedSchemes];
+                      _filteredSchemes =
+                          allSchemes
+                              .where(
+                                (scheme) =>
+                                    scheme['category'] == categories[index],
+                              )
+                              .toList();
+                    }
+                  });
+                },
+                backgroundColor: Colors.grey[100],
+                selectedColor: Colors.black,
+                checkmarkColor: Colors.white,
+                labelStyle: const TextStyle(color: Colors.black),
+                padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20.0),
+                ),
+              ),
+            );
+          },
+        ),
       ),
     );
   }
 
-  Widget _buildEmptyState() {
-    return Center(
+  Widget _buildRecommendedSchemesSection() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16.0, 8.0, 16.0, 4.0),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        border: Border(
+          top: BorderSide(color: Colors.grey[200]!),
+          bottom: BorderSide(color: Colors.grey[200]!),
+        ),
+      ),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.search_off, size: 80, color: Colors.grey[400]),
-          const SizedBox(height: 16),
-          Text(
-            'No schemes found',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.grey[600],
-            ),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(4.0),
+                decoration: BoxDecoration(
+                  color: Colors.green.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.recommend,
+                  size: 16,
+                  color: Colors.green,
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                'Recommended for You',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+              const Spacer(),
+              TextButton.icon(
+                onPressed: _fetchPersonalizedRecommendations,
+                icon: const Icon(Icons.refresh, size: 16),
+                label: const Text('Refresh'),
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.black87,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8.0,
+                    vertical: 4.0,
+                  ),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 2),
           Text(
-            'Try a different search term',
-            style: TextStyle(fontSize: 14, color: Colors.grey[500]),
+            'Based on your profile information',
+            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
           ),
+          const SizedBox(height: 4),
         ],
       ),
     );
@@ -625,12 +678,15 @@ Provide only the JSON response without any additional text.
                       Container(
                         padding: const EdgeInsets.all(12.0),
                         decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.1),
+                          color:
+                              isRecommended
+                                  ? Colors.green.withOpacity(0.1)
+                                  : Colors.black.withOpacity(0.1),
                           borderRadius: BorderRadius.circular(12.0),
                         ),
                         child: Icon(
                           scheme['icon'],
-                          color: Colors.black,
+                          color: isRecommended ? Colors.green : Colors.black,
                           size: 24,
                         ),
                       ),
@@ -1049,6 +1105,31 @@ Provide only the JSON response without any additional text.
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.search_off, size: 80, color: Colors.grey[400]),
+          const SizedBox(height: 16),
+          Text(
+            'No schemes found',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey[600],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Try a different search term',
+            style: TextStyle(fontSize: 14, color: Colors.grey[500]),
+          ),
+        ],
       ),
     );
   }

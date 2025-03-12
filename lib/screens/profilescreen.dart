@@ -268,43 +268,45 @@ class _ProfilePageState extends State<ProfilePage> {
     final lastName = personalInfo?['lastName'] as String? ?? '';
     final fullName = '$firstName $lastName';
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        const SizedBox(height: 16),
-        Container(
-          width: 100,
-          height: 100,
-          decoration: BoxDecoration(
-            color: Colors.black.withOpacity(0.1),
-            shape: BoxShape.circle,
+    return Center(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          const SizedBox(height: 16),
+          Container(
+            width: 100,
+            height: 100,
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: const Center(
+              child: Icon(Icons.person, size: 60, color: Colors.black),
+            ),
           ),
-          child: const Center(
-            child: Icon(Icons.person, size: 60, color: Colors.black),
+          const SizedBox(height: 16),
+          Text(
+            fullName,
+            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
           ),
-        ),
-        const SizedBox(height: 16),
-        Text(
-          fullName,
-          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          _auth.currentUser?.email ?? '',
-          style: TextStyle(fontSize: 16, color: Colors.grey[600]),
-        ),
-        const SizedBox(height: 24),
-        OutlinedButton.icon(
-          onPressed: _editProfile,
-          icon: const Icon(Icons.edit, size: 16),
-          label: const Text('Edit Profile'),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: Colors.black,
-            side: const BorderSide(color: Colors.black),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          const SizedBox(height: 4),
+          Text(
+            _auth.currentUser?.email ?? '',
+            style: TextStyle(fontSize: 16, color: Colors.grey[600]),
           ),
-        ),
-      ],
+          const SizedBox(height: 24),
+          OutlinedButton.icon(
+            onPressed: _editProfile,
+            icon: const Icon(Icons.edit, size: 16),
+            label: const Text('Edit Profile'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.black,
+              side: const BorderSide(color: Colors.black),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
