@@ -16,7 +16,7 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _messageController = TextEditingController();
   final List<ChatMessage> _messages = [];
-  bool _isAnalyzing = false;    
+  bool _isAnalyzing = false;
   final ScrollController _scrollController = ScrollController();
 
   // API key

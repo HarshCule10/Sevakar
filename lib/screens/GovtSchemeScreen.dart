@@ -1,3 +1,4 @@
+import 'package:fchecker/screens/eligibility.dart';
 import 'package:flutter/material.dart';
 import 'package:fchecker/screens/profilescreen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -971,6 +972,12 @@ Provide only the JSON response without any additional text.
                   ElevatedButton(
                     onPressed: () {
                       // Action to check eligibility or apply
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) =>  SchemeElgibility(schemeData: scheme ),
+                        ),
+                      );
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.black,
