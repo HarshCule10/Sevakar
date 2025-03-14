@@ -12,13 +12,18 @@ class GovtSchemeScreen extends StatefulWidget {
   _GovtSchemeScreenState createState() => _GovtSchemeScreenState();
 }
 
-class _GovtSchemeScreenState extends State<GovtSchemeScreen> {
+class _GovtSchemeScreenState extends State<GovtSchemeScreen>
+    with SingleTickerProviderStateMixin {
   final TextEditingController _searchController = TextEditingController();
   bool _isLoading = true;
   bool _hasCompletedProfile = false;
   bool _isLoadingRecommendations = false;
   Map<String, dynamic>? _userProfileData;
   List<Map<String, dynamic>> _recommendedSchemes = [];
+  List<Map<String, dynamic>> _filteredSchemes = [];
+  final GlobalKey<RefreshIndicatorState> _refreshIndicatorKey =
+      GlobalKey<RefreshIndicatorState>();
+  late TabController _tabController;
 
   // API key for Gemini
   final String _apiKey =
@@ -68,13 +73,32 @@ class _GovtSchemeScreenState extends State<GovtSchemeScreen> {
     },
   ];
 
-  List<Map<String, dynamic>> _filteredSchemes = [];
-
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
     _filteredSchemes = List.from(_schemes);
     _checkProfileStatus();
+
+    _tabController.addListener(() {
+      if (_tabController.indexIsChanging) {
+        setState(() {
+          if (_tabController.index == 1) {
+            // Recommended tab
+            _filteredSchemes = List.from(_recommendedSchemes);
+          } else {
+            // All schemes tab
+            _filteredSchemes = List.from(_schemes);
+          }
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   Future<void> _checkProfileStatus() async {
@@ -89,31 +113,23 @@ class _GovtSchemeScreenState extends State<GovtSchemeScreen> {
             await _firestore.collection('users').doc(currentUser.uid).get();
 
         if (userDoc.exists) {
-          Map<String, dynamic>? userData =
-              userDoc.data() as Map<String, dynamic>?;
+          final userData = userDoc.data() as Map<String, dynamic>;
+          final bool hasCompletedProfile =
+              userData['hasCompletedProfile'] ?? false;
 
-          if (userData != null) {
-            bool hasProfile =
-                userData.containsKey('hasCompletedProfile')
-                    ? userData['hasCompletedProfile'] as bool? ?? false
-                    : false;
+          setState(() {
+            _hasCompletedProfile = hasCompletedProfile;
+            _userProfileData = userData;
+            _isLoading = false;
+          });
 
-            setState(() {
-              _hasCompletedProfile = hasProfile;
-
-              if (hasProfile && userData.containsKey('additionalDetails')) {
-                _userProfileData =
-                    userData['additionalDetails'] as Map<String, dynamic>;
-                // Fetch personalized recommendations if profile is complete
-                _fetchPersonalizedRecommendations();
-              }
-            });
+          if (hasCompletedProfile && _recommendedSchemes.isEmpty) {
+            _fetchPersonalizedRecommendations();
           }
         }
       }
     } catch (e) {
       print('Error checking profile status: $e');
-    } finally {
       setState(() {
         _isLoading = false;
       });
@@ -129,33 +145,30 @@ class _GovtSchemeScreenState extends State<GovtSchemeScreen> {
 
     try {
       // Extract relevant user data for the prompt
-      final personalInfo =
-          _userProfileData!['personalInfo'] as Map<String, dynamic>?;
-      final locationInfo =
-          _userProfileData!['locationInfo'] as Map<String, dynamic>?;
-      final economicInfo =
-          _userProfileData!['economicInfo'] as Map<String, dynamic>?;
+      final additionalDetails =
+          _userProfileData!['additionalDetails'] as Map<String, dynamic>?;
 
-      if (personalInfo == null ||
-          locationInfo == null ||
-          economicInfo == null) {
-        throw Exception('Incomplete profile data');
+      if (additionalDetails == null) {
+        throw Exception('Additional details not found in profile');
       }
 
       // Create a structured profile summary for the prompt
       final profileSummary = {
-        'age': personalInfo['age'],
-        'gender': personalInfo['gender'],
-        'caste': personalInfo['caste'],
-        'maritalStatus': personalInfo['maritalStatus'],
-        'state': locationInfo['state'],
-        'residenceArea': locationInfo['residenceArea'],
-        'occupation': economicInfo['occupation'],
-        'education': economicInfo['education'],
-        'annualIncome': economicInfo['annualIncome'],
-        'familyMembers': economicInfo['familyMembers'],
-        'employmentStatus': economicInfo['employmentStatus'],
+        'age': additionalDetails['age'],
+        'gender': additionalDetails['gender'],
+        'caste': additionalDetails['caste'],
+        'maritalStatus': additionalDetails['maritalStatus'],
+        'state': additionalDetails['state'],
+        'residenceArea': additionalDetails['residenceArea'],
+        'occupation': additionalDetails['occupation'],
+        'education': additionalDetails['education'],
+        'annualIncome': additionalDetails['annualIncome'],
+        'familyMembers': additionalDetails['familyMembers'],
+        'employmentStatus': additionalDetails['employmentStatus'],
       };
+
+      // Print profile data for debugging
+      print('Profile Summary: $profileSummary');
 
       // Call Gemini API to get personalized recommendations
       final recommendations = await _getRecommendationsFromGemini(
@@ -170,6 +183,7 @@ class _GovtSchemeScreenState extends State<GovtSchemeScreen> {
       print('Error fetching recommendations: $e');
       setState(() {
         _isLoadingRecommendations = false;
+        _recommendedSchemes = []; // Clear recommendations on error
       });
     }
   }
@@ -336,25 +350,19 @@ Provide only the JSON response without any additional text.
   void _filterSchemes(String query) {
     setState(() {
       if (query.isEmpty) {
-        _filteredSchemes = List.from(_schemes);
-
-        // Add recommended schemes if available
-        if (_recommendedSchemes.isNotEmpty) {
-          // Remove any duplicates by title
-          final existingTitles =
-              _filteredSchemes.map((s) => s['title']).toSet();
-          _filteredSchemes.addAll(
-            _recommendedSchemes.where(
-              (s) => !existingTitles.contains(s['title']),
-            ),
-          );
+        // Show schemes based on current tab
+        if (_tabController.index == 1) {
+          _filteredSchemes = List.from(_recommendedSchemes);
+        } else {
+          _filteredSchemes = List.from(_schemes);
         }
       } else {
-        // Search in both standard schemes and recommended schemes
-        final allSchemes = [..._schemes, ..._recommendedSchemes];
+        // Search in schemes based on current tab
+        final sourceSchemesToSearch =
+            _tabController.index == 1 ? _recommendedSchemes : _schemes;
 
         _filteredSchemes =
-            allSchemes
+            sourceSchemesToSearch
                 .where(
                   (scheme) =>
                       scheme['title'].toString().toLowerCase().contains(
@@ -366,7 +374,6 @@ Provide only the JSON response without any additional text.
                       scheme['category'].toString().toLowerCase().contains(
                         query.toLowerCase(),
                       ) ||
-                      // Search in keywords if available
                       (scheme.containsKey('keywords') &&
                           (scheme['keywords'] as List<dynamic>).any(
                             (keyword) => keyword
@@ -393,6 +400,19 @@ Provide only the JSON response without any additional text.
         elevation: 1,
         automaticallyImplyLeading: false,
         iconTheme: const IconThemeData(color: Colors.black),
+        bottom:
+            _hasCompletedProfile
+                ? TabBar(
+                  controller: _tabController,
+                  labelColor: Colors.black,
+                  unselectedLabelColor: Colors.grey,
+                  indicatorColor: Colors.black,
+                  tabs: const [
+                    Tab(text: 'All Schemes'),
+                    Tab(text: 'Recommended'),
+                  ],
+                )
+                : null,
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 8.0),
@@ -409,28 +429,16 @@ Provide only the JSON response without any additional text.
       ),
       body:
           _isLoading
-              ? const Center(
-                child: CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.black),
-                ),
-              )
+              ? const Center(child: CircularProgressIndicator())
               : !_hasCompletedProfile
               ? _buildProfilePrompt()
-              : SafeArea(
+              : RefreshIndicator(
+                key: _refreshIndicatorKey,
+                onRefresh: _fetchPersonalizedRecommendations,
                 child: Column(
                   children: [
-                    // Top section container with shadow
                     Container(
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.05),
-                            offset: const Offset(0, 2),
-                            blurRadius: 6,
-                          ),
-                        ],
-                      ),
+                      color: Colors.white,
                       child: Column(
                         children: [
                           _buildSearchBar(),
@@ -465,14 +473,9 @@ Provide only the JSON response without any additional text.
                                 ],
                               ),
                             ),
-                          if (_recommendedSchemes.isNotEmpty &&
-                              !_isLoadingRecommendations)
-                            _buildRecommendedSchemesSection(),
-                          const SizedBox(height: 8),
                         ],
                       ),
                     ),
-                    // Schemes list
                     Expanded(
                       child:
                           _filteredSchemes.isEmpty
@@ -541,23 +544,20 @@ Provide only the JSON response without any additional text.
                 onSelected: (selected) {
                   setState(() {
                     if (categories[index] == 'All') {
-                      _filteredSchemes = List.from(_schemes);
-
-                      // Add recommended schemes if available
-                      if (_recommendedSchemes.isNotEmpty) {
-                        final existingTitles =
-                            _filteredSchemes.map((s) => s['title']).toSet();
-                        _filteredSchemes.addAll(
-                          _recommendedSchemes.where(
-                            (s) => !existingTitles.contains(s['title']),
-                          ),
-                        );
+                      // Show schemes based on current tab
+                      if (_tabController.index == 1) {
+                        _filteredSchemes = List.from(_recommendedSchemes);
+                      } else {
+                        _filteredSchemes = List.from(_schemes);
                       }
                     } else {
-                      // Filter both standard and recommended schemes
-                      final allSchemes = [..._schemes, ..._recommendedSchemes];
+                      // Filter schemes based on current tab
+                      final sourceSchemesToFilter =
+                          _tabController.index == 1
+                              ? _recommendedSchemes
+                              : _schemes;
                       _filteredSchemes =
-                          allSchemes
+                          sourceSchemesToFilter
                               .where(
                                 (scheme) =>
                                     scheme['category'] == categories[index],
@@ -579,71 +579,6 @@ Provide only the JSON response without any additional text.
             );
           },
         ),
-      ),
-    );
-  }
-
-  Widget _buildRecommendedSchemesSection() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(16.0, 8.0, 16.0, 4.0),
-      decoration: BoxDecoration(
-        color: Colors.grey[50],
-        border: Border(
-          top: BorderSide(color: Colors.grey[200]!),
-          bottom: BorderSide(color: Colors.grey[200]!),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(4.0),
-                decoration: BoxDecoration(
-                  color: Colors.green.withOpacity(0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.recommend,
-                  size: 16,
-                  color: Colors.green,
-                ),
-              ),
-              const SizedBox(width: 8),
-              const Text(
-                'Recommended for You',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-              ),
-              const Spacer(),
-              TextButton.icon(
-                onPressed: _fetchPersonalizedRecommendations,
-                icon: const Icon(Icons.refresh, size: 16),
-                label: const Text('Refresh'),
-                style: TextButton.styleFrom(
-                  foregroundColor: Colors.black87,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8.0,
-                    vertical: 4.0,
-                  ),
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  visualDensity: VisualDensity.compact,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 2),
-          Text(
-            'Based on your profile information',
-            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-          ),
-          const SizedBox(height: 4),
-        ],
       ),
     );
   }
