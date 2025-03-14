@@ -5,6 +5,7 @@ import 'package:fchecker/widgets/chathistorypanel.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({Key? key}) : super(key: key);
@@ -164,9 +165,24 @@ class _ChatScreenState extends State<ChatScreen> {
         _isAnalyzing = false;
       });
 
-      // Save fact check to Firebase
-      await FirebaseHelper.saveFactCheck(text, factCheckResult);
+      // Save fact check to Firebase with better error handling
+      try {
+        print('Attempting to save fact check to Firebase: $text');
+        await FirebaseHelper.saveFactCheck(text, factCheckResult);
+        print('Successfully saved fact check to Firebase');
+      } catch (saveError) {
+        print('Error saving fact check to Firebase: $saveError');
+        // Show a snackbar to inform the user
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Note: Unable to save this fact check to history.'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
     } catch (e) {
+      print('Error in _handleSubmitted: $e');
       setState(() {
         _messages.add(
           ChatMessage(
@@ -292,15 +308,34 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _showFactCheckHistoryDialog() {
+    print('Opening fact check history dialog');
+
+    // First check if the user is logged in
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) {
+      print('Cannot show history: No user is logged in');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('You need to be logged in to view history'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    print('User is logged in: ${currentUser.uid}');
+
     showDialog(
       context: context,
       builder: (BuildContext context) {
+        print('Building fact check history dialog');
         return Dialog(
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16.0),
           ),
           child: FactCheckHistoryPanel(
             onHistoryItemSelected: (claim, factCheckResult) {
+              print('History item selected: $claim');
               setState(() {
                 _messages.add(ChatMessage(text: claim, isUser: true));
 

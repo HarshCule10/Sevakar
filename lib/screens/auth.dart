@@ -13,19 +13,25 @@ class AuthScreen extends StatefulWidget {
 class _AuthScreenState extends State<AuthScreen> {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
-  final TextEditingController _usernameController = TextEditingController(); // New username controller
+  final TextEditingController _usernameController =
+      TextEditingController(); // New username controller
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   bool _isObscured = true;
   bool registered = true;
 
   // Function to create user in Firestore
-  Future<void> _createUserInFirestore(User user, String email, {String username = ''}) async {
+  Future<void> _createUserInFirestore(
+    User user,
+    String email, {
+    String username = '',
+  }) async {
     try {
       await _firestore.collection('users').doc(user.uid).set({
         'email': email,
         'name': username, // Now using the username parameter
         'createdAt': FieldValue.serverTimestamp(),
+        'userChatHistory': [], // Initialize empty chat history array
       });
       print('User document created in Firestore');
     } catch (e) {
@@ -42,19 +48,31 @@ class _AuthScreenState extends State<AuthScreen> {
         password: _passwordController.text.trim(),
       );
 
-      // We don't need username for sign in, passing empty string
-      await _createUserInFirestore(userCredential.user!, _emailController.text.trim());
+      // Check if the user document already exists
+      DocumentSnapshot userDoc =
+          await _firestore
+              .collection('users')
+              .doc(userCredential.user!.uid)
+              .get();
+
+      // Only create the user document if it doesn't exist
+      if (!userDoc.exists) {
+        print('User document does not exist, creating it');
+        await _createUserInFirestore(
+          userCredential.user!,
+          _emailController.text.trim(),
+        );
+      } else {
+        print('User document already exists, skipping creation');
+      }
 
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (context) => const ChatScreen()),
       );
     } catch (e) {
-      print(e);
+      print('Error in sign in: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.toString()),
-          backgroundColor: Colors.red,
-        ),
+        SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
       );
     } finally {
       setState(() {
@@ -77,16 +95,17 @@ class _AuthScreenState extends State<AuthScreen> {
       );
       return;
     }
-    
+
     try {
-      UserCredential userCredential = await _auth.createUserWithEmailAndPassword(
-        email: _emailController.text.trim(),
-        password: _passwordController.text.trim(),
-      );
-      
+      UserCredential userCredential = await _auth
+          .createUserWithEmailAndPassword(
+            email: _emailController.text.trim(),
+            password: _passwordController.text.trim(),
+          );
+
       // Create the user document in Firestore with username
       await _createUserInFirestore(
-        userCredential.user!, 
+        userCredential.user!,
         _emailController.text.trim(),
         username: _usernameController.text.trim(),
       );
@@ -97,10 +116,7 @@ class _AuthScreenState extends State<AuthScreen> {
     } catch (e) {
       print(e);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.toString()),
-          backgroundColor: Colors.red,
-        ),
+        SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
       );
     } finally {
       setState(() {
@@ -190,11 +206,7 @@ class _AuthScreenState extends State<AuthScreen> {
         borderRadius: BorderRadius.circular(16.0),
       ),
       child: const Center(
-        child: Icon(
-          Icons.fact_check,
-          color: Colors.white,
-          size: 40,
-        ),
+        child: Icon(Icons.fact_check, color: Colors.white, size: 40),
       ),
     );
   }
@@ -213,13 +225,10 @@ class _AuthScreenState extends State<AuthScreen> {
         ),
         const SizedBox(height: 8),
         Text(
-          registered 
+          registered
               ? 'Sign in to continue to Fact Checker'
               : 'Sign up to start using Fact Checker',
-          style: const TextStyle(
-            fontSize: 16,
-            color: Colors.black54,
-          ),
+          style: const TextStyle(fontSize: 16, color: Colors.black54),
         ),
       ],
     );
@@ -295,10 +304,7 @@ class _AuthScreenState extends State<AuthScreen> {
         },
         child: const Text(
           'Forgot Password?',
-          style: TextStyle(
-            color: Colors.black,
-            fontWeight: FontWeight.w600,
-          ),
+          style: TextStyle(color: Colors.black, fontWeight: FontWeight.w600),
         ),
       ),
     );
@@ -313,16 +319,11 @@ class _AuthScreenState extends State<AuthScreen> {
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
         padding: const EdgeInsets.symmetric(vertical: 16),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
       child: Text(
         registered ? 'Sign In' : 'Sign Up',
-        style: const TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.bold,
-        ),
+        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
       ),
     );
   }
@@ -330,9 +331,7 @@ class _AuthScreenState extends State<AuthScreen> {
   Widget _buildDivider() {
     return const Row(
       children: [
-        Expanded(
-          child: Divider(color: Colors.black26, thickness: 1),
-        ),
+        Expanded(child: Divider(color: Colors.black26, thickness: 1)),
         Padding(
           padding: EdgeInsets.symmetric(horizontal: 16),
           child: Text(
@@ -343,9 +342,7 @@ class _AuthScreenState extends State<AuthScreen> {
             ),
           ),
         ),
-        Expanded(
-          child: Divider(color: Colors.black26, thickness: 1),
-        ),
+        Expanded(child: Divider(color: Colors.black26, thickness: 1)),
       ],
     );
   }

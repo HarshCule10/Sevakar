@@ -30,25 +30,71 @@ class _FactCheckHistoryPanelState extends State<FactCheckHistoryPanel> {
       _isLoading = true;
     });
 
-    final history = await FirebaseHelper.getChatHistory();
+    try {
+      final history = await FirebaseHelper.getChatHistory();
 
-    setState(() {
-      _historyItems = history;
-      _isLoading = false;
-    });
+      // Sort history by timestamp (newest first)
+      history.sort((a, b) {
+        final aTimestamp = a['timestamp'] as Timestamp?;
+        final bTimestamp = b['timestamp'] as Timestamp?;
+
+        if (aTimestamp == null && bTimestamp == null) return 0;
+        if (aTimestamp == null) return 1;
+        if (bTimestamp == null) return -1;
+
+        return bTimestamp.compareTo(aTimestamp);
+      });
+
+      setState(() {
+        _historyItems = history;
+        _isLoading = false;
+      });
+
+      print('Loaded ${history.length} history items');
+    } catch (e) {
+      print('Error loading chat history: $e');
+      setState(() {
+        _isLoading = false;
+      });
+    }
   }
 
   List<Map<String, dynamic>> get _filteredHistory {
     return _historyItems.where((item) {
-      final matchesSearch = item['claim'].toString().toLowerCase().contains(
+      // Check if the item has the required fields
+      if (!item.containsKey('claim') || !item.containsKey('factCheckResult')) {
+        return false;
+      }
+
+      final claim = item['claim'].toString();
+      final factCheckResult = item['factCheckResult'] as Map<String, dynamic>?;
+
+      if (factCheckResult == null) {
+        return false;
+      }
+
+      final matchesSearch = claim.toLowerCase().contains(
         _searchQuery.toLowerCase(),
       );
-      final matchesFilter =
-          _selectedFilter == 'All' ||
-          (item['factCheckResult']?['verdict'] ?? '')
-                  .toString()
-                  .toLowerCase() ==
-              _selectedFilter.toLowerCase();
+
+      // For filter, check accuracy level
+      bool matchesFilter = _selectedFilter == 'All';
+
+      if (!matchesFilter && factCheckResult.containsKey('accuracy')) {
+        final accuracy = factCheckResult['accuracy'] as int?;
+        if (accuracy != null) {
+          if (_selectedFilter == 'True' && accuracy >= 70) {
+            matchesFilter = true;
+          } else if (_selectedFilter == 'Partially True' &&
+              accuracy >= 40 &&
+              accuracy < 70) {
+            matchesFilter = true;
+          } else if (_selectedFilter == 'False' && accuracy < 40) {
+            matchesFilter = true;
+          }
+        }
+      }
+
       return matchesSearch && matchesFilter;
     }).toList();
   }
@@ -196,12 +242,14 @@ class _FactCheckHistoryPanelState extends State<FactCheckHistoryPanel> {
         final String claim = item['claim'] ?? 'Unknown claim';
         final timestamp = item['timestamp'] as Timestamp?;
         final factCheckResult =
-            item['factCheckResult'] as Map<String, dynamic>?;
-        final String verdict = factCheckResult?['verdict'] ?? 'No verdict';
-        final int accuracy = factCheckResult?['accuracy'] as int? ?? 0;
+            item['factCheckResult'] as Map<String, dynamic>? ?? {};
+        final int accuracy = factCheckResult['accuracy'] as int? ?? 0;
 
         return Dismissible(
-          key: Key(timestamp?.toDate().toString() ?? DateTime.now().toString()),
+          key: Key(
+            timestamp?.toDate().toString() ??
+                DateTime.now().toString() + index.toString(),
+          ),
           background: Container(
             decoration: BoxDecoration(
               color: Colors.red[400],
@@ -226,7 +274,7 @@ class _FactCheckHistoryPanelState extends State<FactCheckHistoryPanel> {
             ),
             child: InkWell(
               onTap: () {
-                widget.onHistoryItemSelected(claim, factCheckResult ?? {});
+                widget.onHistoryItemSelected(claim, factCheckResult);
                 Navigator.of(context).pop();
               },
               borderRadius: BorderRadius.circular(12.0),
@@ -248,47 +296,55 @@ class _FactCheckHistoryPanelState extends State<FactCheckHistoryPanel> {
                                 claim,
                                 style: const TextStyle(
                                   fontSize: 16,
-                                  fontWeight: FontWeight.w500,
+                                  fontWeight: FontWeight.bold,
                                 ),
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
                               ),
-                              const SizedBox(height: 8),
-                              Row(
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 4,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: _getVerdictColor(
-                                        verdict,
-                                      ).withOpacity(0.1),
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: Text(
-                                      verdict,
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: _getVerdictColor(verdict),
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
+                              const SizedBox(height: 4),
+                              if (timestamp != null)
+                                Text(
+                                  DateFormat(
+                                    'MMM d, yyyy • h:mm a',
+                                  ).format(timestamp.toDate()),
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey[600],
                                   ),
-                                  const SizedBox(width: 8),
-                                  if (timestamp != null)
-                                    Text(
-                                      _formatTimestamp(timestamp.toDate()),
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.grey[600],
-                                      ),
-                                    ),
-                                ],
-                              ),
+                                ),
                             ],
                           ),
+                        ),
+                        const Icon(
+                          Icons.arrow_forward_ios,
+                          size: 16,
+                          color: Colors.grey,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        _buildMetricChip(
+                          'Accuracy',
+                          accuracy,
+                          accuracy >= 70
+                              ? Colors.green
+                              : accuracy >= 40
+                              ? Colors.orange
+                              : Colors.red,
+                        ),
+                        const SizedBox(width: 8),
+                        _buildMetricChip(
+                          'Credibility',
+                          factCheckResult['credibility'] as int? ?? 0,
+                          Colors.blue,
+                        ),
+                        const SizedBox(width: 8),
+                        _buildMetricChip(
+                          'Bias',
+                          factCheckResult['bias'] as int? ?? 0,
+                          Colors.purple,
                         ),
                       ],
                     ),
@@ -306,12 +362,12 @@ class _FactCheckHistoryPanelState extends State<FactCheckHistoryPanel> {
     Color color;
     IconData icon;
 
-    if (accuracy > 70) {
+    if (accuracy >= 70) {
       color = Colors.green;
       icon = Icons.check_circle;
-    } else if (accuracy > 30) {
+    } else if (accuracy >= 40) {
       color = Colors.orange;
-      icon = Icons.info;
+      icon = Icons.warning;
     } else {
       color = Colors.red;
       icon = Icons.cancel;
@@ -327,6 +383,56 @@ class _FactCheckHistoryPanelState extends State<FactCheckHistoryPanel> {
     );
   }
 
+  Widget _buildMetricChip(String label, int value, Color color) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              flex: 3,
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: color,
+                  fontWeight: FontWeight.w500,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Flexible(
+              flex: 2,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '$value%',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                  ),
+                  textAlign: TextAlign.center,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildEmptyState() {
     return Center(
       child: Column(
@@ -335,83 +441,48 @@ class _FactCheckHistoryPanelState extends State<FactCheckHistoryPanel> {
           Icon(Icons.history, size: 64, color: Colors.grey[400]),
           const SizedBox(height: 16),
           Text(
-            _searchQuery.isEmpty
-                ? 'No fact check history yet'
-                : 'No results found',
+            'No History Found',
             style: TextStyle(
-              fontSize: 16,
-              color: Colors.grey[600],
-              fontWeight: FontWeight.w500,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey[700],
             ),
           ),
-          if (_searchQuery.isEmpty) ...[
-            const SizedBox(height: 8),
-            Text(
-              'Your fact check history will appear here',
-              style: TextStyle(fontSize: 14, color: Colors.grey[500]),
-            ),
-          ],
+          const SizedBox(height: 8),
+          Text(
+            'Your fact check history will appear here',
+            style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+            textAlign: TextAlign.center,
+          ),
         ],
       ),
     );
   }
 
-  Color _getVerdictColor(String verdict) {
-    switch (verdict.toLowerCase()) {
-      case 'true':
-        return Colors.green;
-      case 'partially true':
-        return Colors.orange;
-      case 'false':
-        return Colors.red;
-      default:
-        return Colors.grey;
-    }
-  }
-
-  String _formatTimestamp(DateTime timestamp) {
-    final now = DateTime.now();
-    final difference = now.difference(timestamp);
-
-    if (difference.inDays == 0) {
-      if (difference.inHours == 0) {
-        return '${difference.inMinutes} min ago';
-      }
-      return '${difference.inHours} hours ago';
-    } else if (difference.inDays < 7) {
-      return '${difference.inDays} days ago';
-    } else {
-      return DateFormat('MMM d, y').format(timestamp);
-    }
-  }
-
-  Future<void> _showClearHistoryDialog() async {
-    return showDialog(
+  void _showClearHistoryDialog() {
+    showDialog(
       context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Clear History'),
-          content: const Text(
-            'Are you sure you want to clear your entire fact check history? This action cannot be undone.',
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Clear History'),
+            content: const Text(
+              'Are you sure you want to clear your entire fact check history?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () async {
+                  Navigator.of(context).pop();
+                  await FirebaseHelper.clearChatHistory();
+                  _loadChatHistory();
+                },
+                child: const Text('Clear', style: TextStyle(color: Colors.red)),
+              ),
+            ],
           ),
-          actions: [
-            TextButton(
-              child: const Text('Cancel'),
-              onPressed: () => Navigator.of(context).pop(),
-            ),
-            TextButton(
-              child: const Text('Clear', style: TextStyle(color: Colors.red)),
-              onPressed: () async {
-                await FirebaseHelper.clearChatHistory();
-                setState(() {
-                  _historyItems.clear();
-                });
-                Navigator.of(context).pop();
-              },
-            ),
-          ],
-        );
-      },
     );
   }
 }
